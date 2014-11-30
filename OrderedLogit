@@ -1,0 +1,524 @@
+#file to load lat lon files and create arff file from foursquare data
+#David mcGookin
+
+
+#from yelpapi import YelpAPI
+import os
+import foursquare
+import json
+import pprint
+import codecs
+import geolocation
+import osmapi
+import json
+import urllib
+import urllib2
+import time
+import math
+
+
+#yelp_api = YelpAPI('Wyo8bYXKk4ubhWu_45OEuA', 'ec3DH7CsDj0kMzZOed9AgZPLzUs', 'SdC0bi3V9Km9KJ50eRYERWyKxriFCXSP','7wcujSGgqT2_DNUZHlNn7MSEs2o')
+
+
+#for foursquare
+placeTypesList = []
+remapNamesDict ={}
+
+#for OSM
+#these are the only node we care about. We will output the count of these nodes in the arff file ultimately
+#it is very important we output in this list all the nodes we care about, or we cannot use them
+# FOR THE DETAILED LEVEL
+validOSMNodeTypes = ['highway_motorway', 'highway_trunk', 'highway_primary', 'highway_secondary', 'highway_tertiary', 'highway_unclassified', 'highway_residential', 'highway_service', 'highway_motorway_link', 'highway_trunk_link', 'highway_primary_link', 'highway_secondary_link', 'highway_tertiary_link', 'highway_living_street', 'highway_pedestrian', 'highway_track', 'highway_bus_guideway', 'highway_raceway', 'highway_road', 'highway_footway', 'highway_bridleway', 'highway_steps', 'highway_path', 'highway_cycleway', 'highway_crossing', 'highway_street_lamp', 'highway_traffic_signals', 'historic_archaeological_site', 'historic_battlefield', 'historic_castle', 'historic_farm', 'historic_fort', 'historic_memorial', 'historic_monument', 'historic_ruins', 'historic_tree_shrine', 'landuse_cemetery', 'landuse_commercial', 'landuse_farmland', 'landuse_forest', 'landuse_garages', 'landuse_greenfield', 'landuse_industrial', 'landuse_meadow', 'landuse_military', 'landuse_orchard', 'landuse_pasture', 'landuse_plant_nursery', 'landuse_quarry', 'landuse_railway', 'landuse_recreation_ground', 'landuse_retail', 'landuse_village_green', 'landuse_farm', 'leisure_beach_resort', 'leisure_bird_hide', 'leisure_common', 'leisure_dance', 'leisure_dog_park', 'leisure_firepit', 'leisure_fishing', 'leisure_garden', 'leisure_golf_course', 'leisure_marina', 'leisure_nature_reserve', 'leisure_park', 'leisure_pitch', 'leisure_playground', 'leisure_slipway', 'leisure_sports-centre', 'leisure_stadium', 'leisure_swimming_pool', 'leisure_water_park', 'natural_grassland', 'natural_heath', 'natural_mud', 'natural_sand', 'natural_scrub', 'natural_wood', 'natural_bay', 'natural_beach', 'natural_coastline', 'natural_water', 'railway_rail', 'railway_preserved', 'railway_minature', 'railway_funicular', 'railway_monorail', 'railway_light_rail', 'railway_tram', 'railway_level_crossing', 'tourism_attraction','tourism_artwork', 'tourism_museum', 'tourism_picnic_site', 'waterway_river', 'waterway_riverbank', 'waterway_stream', 'waterway_canal', 'waterway_dock', 'waterway_dam', 'waterway_weir']
+validOSMNodeTypes = ['highway',  'historic', 'landuse', 'leisure', 'natural', 'railway', 'tourism', 'waterway']
+
+
+
+#for Google Places. These are the types we care about
+google_places_valid_types = ['accounting','airport','amusement_park','aquarium','art_gallery','atm','bakery','bank','bar','beauty_salon','bicycle_store','book_store','bowling_alley','bus_station','cafe','campground','car_dealer','car_rental','car_repair','car_wash','casino','cemetery','church','city_hall','clothing_store','convenience_store','courthouse','dentist','department_store','doctor','electrician','electronics_store','embassy','establishment','finance','fire_station','florist','food','funeral_home','furniture_store','gas_station','general_contractor','grocery_or_supermarket','gym','hair_care','hardware_store','health','hindu_temple','home_goods_store','hospital','insurance_agency','jewelry_store','laundry','lawyer','library','liquor_store','local_government_office','locksmith','lodging','meal_delivery','meal_takeaway','mosque','movie_rental','movie_theater','moving_company','museum','night_club','painter','park','parking','pet_store','pharmacy','physiotherapist','place_of_worship','plumber','police','post_office','real_estate_agency','restaurant','roofing_contractor','rv_park','school','shoe_store','shopping_mall','spa','stadium','storage','store','subway_station','synagogue','taxi_stand','train_station','travel_agency','university','veterinary_care','zoo']
+
+#for yelp places
+yelp_places_valid_types = ['active','amateursportsteams','amusementparks','aquariums','archery','badminton','basketballcourts','beaches','bikerentals','boating','bowling','challengecourses','climbing','cyclingclasses','discgolf','diving','freediving','scuba','fishing','fitness','barreclasses','bootcamps','boxing','dancestudio','gyms','martialarts','meditationcenters','pilates','swimminglessons','taichi','healthtrainers','yoga','gokarts','golf','gun_ranges','gymnastics','hanggliding','hiking','horseracing','horsebackriding','hot_air_balloons','kiteboarding','lakes','lasertag','leisure_centers','mini_golf','mountainbiking','paddleboarding','paintball','parks','dog_parks','skate_parks','playgrounds','rafting','recreation','rock_climbing','skatingrinks','skydiving','sledding','football','sports_clubs','squash','summer_camps','surfing','swimmingpools','tennis','trampoline','tubing','zoos','arts','arcades','gardens','casinos','movietheaters','culturalcenter','festivals','jazzandblues','museums','musicvenues','opera','theater','sportsteams','psychic_astrology','racetracks','social_clubs','stadiumsarenas','ticketsales','wineries','auto','aircraftdealers','autocustomization','auto_detailing','autoglass','autoloanproviders','autopartssupplies','autorepair','boatdealers','bodyshops','car_dealers','stereo_installation','carwash','servicestations','motorcycledealers','motorcyclerepair','oilchange','parking','rv_dealers','registrationservices','smog_check_stations','tires','towing','truck_rental','wheelrimrepair','windshieldinstallrepair','beautysvc','barbers','cosmetics','spas','eyelashservice','hair_extensions','hairremoval','laser_hair_removal','hair','blowoutservices','hair_extensions','hairstylists','menshair','makeupartists','massage','medicalspa','othersalons','permanentmakeup','piercing','rolfing','skincare','tanning','spraytanning','tanningbeds','tattoo','education','adultedu','collegecounseling','collegeuniv','educationservices','elementaryschools','highschools','preschools','privatetutors','religiousschools','specialed','specialtyschools','artschools','cprclasses','cookingschools','cosmetology_schools','dance_schools','driving_schools','firstaidclasses','flightinstruction','foodsafety','language_schools','massage_schools','swimminglessons','vocation','testprep','tutoring','eventservices','bartenders','boatcharters','catering','clowns','djs','hotels','magicians','musicians','officiants','eventplanning','partybusrentals','partyequipmentrentals','partysupplies','personalchefs','photographers','eventphotography','sessionphotography','venues','videographers','wedding_planning','financialservices','banks','paydayloans','financialadvising','insurance','investing','taxservices','food','bagels','bakeries','beer_and_wine','breweries','bubbletea','butcher','csa','coffee','convenience','cupcakes','desserts','diyfood','donuts','farmersmarket','fooddeliveryservices','foodtrucks','gelato','grocery','icecream','internetcafe','juicebars','pretzels','shavedice','gourmet','candy','cheese','chocolate','ethnicmarkets','markets','healthmarkets','herbsandspices','meats','seafoodmarkets','streetvendors','tea','wineries','health','acupuncture','cannabis_clinics','chiropractors','c_and_mh','dentists','cosmeticdentists','endodontists','generaldentistry','oralsurgeons','orthodontists','pediatric_dentists','periodontists','diagnosticservices','diagnosticimaging','laboratorytesting','physicians','allergist','anesthesiologists','audiologist','cardiology','cosmeticsurgeons','dermatology','earnosethroat','familydr','fertility','gastroenterologist','gerontologist','internalmed','naturopathic','neurologist','obgyn','oncologist','opthamalogists','orthopedists','osteopathicphysicians','pediatricians','podiatrists','proctologist','psychiatrists','pulmonologist','sportsmed','tattooremoval','urologists','doulas','hearingaidproviders','homehealthcare','hospice','hospitals','hypnosis','lactationservices','laserlasikeyes','massage_therapy','medcenters','medicalspa','medicaltransportation','midwives','nutritionists','occupationaltherapy','optometrists','physicaltherapy','reflexology','rehabilitation_center','retirement_homes','speech_therapists','tcm','urgent_care','weightlosscenters','homeservices','buildingsupplies','carpetinstallation','carpeting','chimneysweeps','contractors','damagerestoration','doorsales','electricians','fencesgates','flooring','garage_door_services','gardeners','glassandmirrors','gutterservices','handyman','hvac','homecleaning','home_inspectors','home_organization','hometheatreinstallation','homewindowtinting','interiordesign','irrigation','locksmiths','landscapearchitects','landscaping','lighting','masonry_concrete','movers','painters','plumbing','poolcleaners','realestate','homestaging','mortgagebrokers','propertymgmt','realestateagents','realestatesvcs','sharedofficespaces','university_housing','roofing','securitysystems','blinds','solarinstallation','structuralengineers','televisionserviceproviders','treeservices','utilities','windowwashing','windowsinstallation','hotelstravel','airports','bedbreakfast','campgrounds','carrental','guesthouses','healthretreats','hostels','hotels','motorcycle_rental','rvparks','rvrental','resorts','skiresorts','tours','trainstations','transport','airlines','airport_shuttles','limos','publictransport','taxis','travelservices','vacationrentalagents','vacation_rentals','localflavor','yelpevents','localservices','homeappliancerepair','bailbondsmen','bike_repair_maintenance','carpet_cleaning','childcare','nonprofit','couriers','drycleaninglaundry','electronicsrepair','funeralservices','reupholstery','itservices','datarecovery','mobilephonerepair','jewelryrepair','junkremovalandhauling','metalfabricators','nannys','notaries','pest_control','copyshops','propane','recording_studios','recyclingcenter','screenprinting','screen_printing_tshirt_printing','selfstorage','sewingalterations','shipping_centers','shoerepair','snowremoval','watch_repair','massmedia','printmedia','radiostations','televisionstations','nightlife','adultentertainment','bars','champagne_bars','cocktailbars','divebars','gaybars','hookah_bars','lounges','pubs','sportsbars','wine_bars','comedyclubs','countrydancehalls','danceclubs','jazzandblues','karaoke','pianobars','poolhalls','pets','animalshelters','horse_boarding','petservices','dogwalkers','pet_sitting','groomer','pet_training','petstore','vet','professional','accountants','advertising','architects','boatrepair','careercounseling','editorialservices','employmentagencies','graphicdesign','isps','lawyers','bankruptcy','businesslawyers','criminaldefense','duilawyers','divorce','employmentlawyers','estateplanning','general_litigation','immigrationlawyers','personal_injury','realestatelawyers','legalservices','lifecoach','marketing','matchmakers','officecleaning','payroll','personalassistants','privateinvestigation','publicrelations','signmaking','talentagencies','taxidermy','translationservices','videofilmproductions','web_design','publicservicesgovt','courthouses','departmentsofmotorvehicles','embassy','firedepartments','landmarks','libraries','policedepartments','postoffices','realestate','apartments','religiousorgs','buddhist_temples','churches','hindu_temples','mosques','synagogues','restaurants','afghani','african','senegalese','southafrican','newamerican','tradamerican','arabian','argentine','armenian','asianfusion','australian','austrian','bangladeshi','bbq','basque','belgian','brasseries','brazilian','breakfast_brunch','british','buffets','burgers','burmese','cafes','cafeteria','cajun','cambodian','caribbean','dominican','haitian','puertorican','trinidadian','catalan','cheesesteaks','chicken_wings','chinese','cantonese','dimsum','shanghainese','szechuan','comfortfood','creperies','cuban','czech','delis','diners','ethiopian','hotdogs','filipino','fishnchips','fondue','food_court','foodstands','french','gastropubs','german','gluten_free','greek','halal','hawaiian','himalayan','hotdog','hotpot','hungarian','iberian','indpak','indonesian','irish','italian','japanese','korean','kosher','laotian','latin','colombian','salvadoran','venezuelan','raw_food','malaysian','mediterranean','falafel','mexican','mideastern','egyptian','lebanese','modern_european','mongolian','moroccan','pakistani','persian','peruvian','pizza','polish','portuguese','russian','salad','sandwiches','scandinavian','scottish','seafood','singaporean','slovakian','soulfood','soup','southern','spanish','steak','sushi','taiwanese','tapas','tapasmallplates','tex-mex','thai','turkish','ukrainian','vegan','vegetarian','vietnamese','shopping','adult','antiques','galleries','artsandcrafts','artsupplies','stationery','costumes','embroideryandcrochet','fabricstores','framing','auctionhouses','baby_gear','bespoke','media','bookstores','comicbooks','musicvideo','mags','videoandgames','vinyl_records','bridal','computers','deptstores','discountstore','drugstores','electronics','opticians','fashion','accessories','childcloth','formalwear','hats','leather','lingerie','maternity','menscloth','plus_size_fashion','shoes','surfshop','swimwear','vintage','womenscloth','fireworks','fleamarkets','flowers','florists','giftshops','goldbuyers','golfshops','guns_and_ammo','hobbyshops','homeandgarden','appliances','furniture','hardware','homedecor','hottubandpool','kitchenandbath','mattresses','gardening','rugs','jewelry','knittingsupplies','luggage','medicalsupplies','mobilephones','motorcyclinggear','musicalinstrumentsandteachers','officeequipment','outlet_stores','pawn','personal_shopping','photographystores','poolbilliards','popupshops','shoppingcenters','sportgoods','bikes','golfequipment','outdoorgear','sportswear','thrift_stores','tobaccoshops','toys','trophyshops','uniforms','watches','wholesale_stores','wigs']
+
+def dumpRemapDictToFile():
+	UTF8Writer = codecs.getwriter('utf8')
+	remapDictFileHandle = UTF8Writer(codecs.open('remap_dict_file_dump.txt', 'w'))
+	for key in list(remapNamesDict.keys()):
+		keyFiltered = key.replace('\'','')#weka also doesn't really like ' either
+		remapDictFileHandle.write(keyFiltered+' was mapped to '+remapNamesDict[key].replace('\'','')+'\n')
+	remapDictFileHandle.close()
+	
+def mapAllToSubCat(catName, subCats):
+	for cat in subCats:
+		remapNamesDict[cat['name']] = catName
+		if 'categories' in cat: 
+			mapAllToSubCat(catName, cat['categories'])#if there are more levels, map them the same way
+			
+def setup_foursquare_placetypes():
+	client = foursquare.Foursquare(client_id=u'HPU2ABO3QWVL2ULYT2JARUD0FZGKKTUXQSQUZOYCBLPCQRF4', client_secret=u'ARDZM43BW52JQZEEXALJ45WPA32Z0IAPBF32KNZWYS34RCYR')
+
+	categories = client.venues.categories()
+
+	#pprint.pprint(categories)
+	
+	#we aquire the most detailed categories at this point
+	#this will need to be filtered a bit more in the future
+	for category in categories['categories']:
+		print category['name']
+		placeTypesList.append(category['name'])
+		#maps below level 1 to level 1
+		mapAllToSubCat(category['name'], category['categories'])
+		
+		
+		#maps below level 2 to level 2
+		#if 'categories' in category:
+		#	for subCategory in category['categories']:
+		#		print subCategory['name']
+		#		placeTypesList.append(subCategory['name'])
+		#		mapAllToSubCat(subCategory['name'], subCategory['categories'])
+				
+			#old dont use	
+	#			if 'categories' in subCategory:
+	#				for subSubCategory in subCategory['categories']:
+	#					print subSubCategory['name']
+	#					placeTypesList.append(subSubCategory['name'])
+	#				#after level 2, all categories should be mapped to the subCategory
+	#				
+	#				mapAllToSubCat(subCategory['name'], subCategory['categories'])
+		
+	dumpRemapDictToFile()		
+			
+def init_blank_place_count_list():
+	placeCount =[]
+	for place in placeTypesList:
+		placeCount.append(0)
+	return placeCount
+
+def write_foursquare_header(fileHandle):
+	#write the attributes for foursquare
+	#get a list of all attribute types by their index and print out
+	#then print the predictor values
+	for attribute in placeTypesList:
+		attributeFiltered = attribute.replace(' ','_') #we take out spaces to avoid  confusing Weka. This is a last stage thing that must be done after any searching of FSq
+		attributeFiltered = attributeFiltered.replace('\'','')#weka also doesn't really like ' either
+		writeStr = '@attribute '+'FQ_'+attributeFiltered+' numeric\n'
+		print writeStr
+		fileHandle.write(writeStr)
+		
+def write_osm_header(fileHandle):
+	for attribute in validOSMNodeTypes:
+		writeStr = '@attribute '+'OSM_'+attribute+' numeric\n'
+		print writeStr
+		fileHandle.write(writeStr)
+
+def write_google_places_header(fileHandle):
+	for attribute in google_places_valid_types:
+		writeStr = '@attribute '+'GOOG_'+attribute+' numeric\n'
+		print writeStr
+		fileHandle.write(writeStr)
+
+def write_yelp_places_header(fileHandle):
+	for attribute in yelp_places_valid_types:
+		writeStr = '@attribute '+'YELP_'+attribute+' numeric\n'
+		print writeStr
+		fileHandle.write(writeStr)
+		
+def write_header(fileHandle):
+	fileHandle.write('% ARFF File header\n')
+	fileHandle.write('@relation geoplace\n')
+	fileHandle.write('\n')
+	write_foursquare_header(fileHandle)
+	write_google_places_header(fileHandle)
+	#write_yelp_places_header(fileHandle)
+	write_osm_header(fileHandle)
+	
+	
+	#write the attributes for 
+def process_latlon_foursquare(lat,lon):
+	#return 'Dummy String\n'
+	#initialise a client (We use the foursquare python api - https://github.com/mLewisLogic/foursquare). This needs to be installed via python first.
+	client =  foursquare.Foursquare(client_id=u'HPU2ABO3QWVL2ULYT2JARUD0FZGKKTUXQSQUZOYCBLPCQRF4', client_secret=u'ARDZM43BW52JQZEEXALJ45WPA32Z0IAPBF32KNZWYS34RCYR')
+	venue_count_list = init_blank_place_count_list()
+	#find the venues in a specific locale and radius
+	latLon = ""+str(lat)+","+str(lon)
+	venues = client.venues.search(params={'ll':latLon,'radius':'150','limit':'150','intent':'browse'})
+	venues_list = venues['venues']
+	#parse out the individual venues
+	no_venues_added = 0
+	no_venues_found = 0
+	#pprint.pprint(venues_list)
+	for venue in venues_list:
+		venue_added = False
+		no_venues_found = no_venues_found+1
+		categories = venue['categories']
+	#	print '*********\n'
+		for category in categories:
+			#print "CAT"+category
+			index = -1
+			if category['name'] in placeTypesList:
+				index = placeTypesList.index(category['name'])	
+				print 'adding :'+category['name']
+			#This ooks at the rempa dict
+			if category['name'] in remapNamesDict:
+				index = placeTypesList.index(remapNamesDict[category['name']])
+				print 'adding :'+remapNamesDict[category['name']]
+			if not index == -1:	 
+				venue_count_list[index] = venue_count_list[index]+1
+				no_venues_added = no_venues_added+1
+				venue_added = True
+			
+		if not venue_added:
+			print "Error: Venue was not added: "+ venue['name']
+			pprint.pprint(venue)		
+	#	print '*********\n'
+	#print "Found: "+str(no_venues_found)+"Added: "+str(no_venues_added)
+		
+	returnString = ''
+	writtenFirstValue = False	
+	for value in venue_count_list:
+		if writtenFirstValue: #make sure we have the commas right
+			returnString = returnString+', '
+		returnString = returnString+str(value)
+		writtenFirstValue = True
+	#print returnString
+	#returnString = returnString+', '+str(score)
+	return returnString
+	
+	
+	
+#methods to support OSM retrieval
+def process_latlon_osm(lat,lon):
+	#setup the storage list
+	osmNodeCount = []
+	api = osmapi.OsmApi()
+	for node in validOSMNodeTypes:
+		osmNodeCount.append(0);
+		
+	#get the osm data
+	geo = geolocation.GeoLocation.from_degrees(lat, lon)
+
+	boundingBox = geo.bounding_locations(0.150) #100m away
+	results = api.Map(boundingBox[0].deg_lon, boundingBox[0].deg_lat, 						boundingBox[1].deg_lon, boundingBox[1].deg_lat)
+
+
+	#pprint.pprint(results)
+	for node in results:
+		tag = node['data']
+		tagData = tag['tag']
+		tagString ='EMPTY STRING'
+		#for the detailed version
+		#if 'highway' in tagData: 
+		#	tagString = 'highway_'+tagData['highway']
+		#elif 'natural' in tagData:
+		#	tagString = 'natural_'+tagData['natural']
+		#elif 'historic' in tagData:
+		#	tagString = 'historic_'+tagData['historic']
+		#elif 'leisure' in tagData:
+		#	tagString = 'leisure_'+tagData['leisure']
+		#elif 'landuse' in tagData:
+		#	tagString = 'landuse_'+tagData['landuse']
+		#elif 'railway' in tagData:
+		#	tagString = 'railway_'+tagData['railway']
+		#elif 'tourism' in tagData:
+		#	tagString = 'tourism_'+tagData['tourism']
+		#elif 'waterway' in tagData:
+		#	tagString = 'waterway_'+tagData['waterway']
+		
+		#for the less details	
+		if 'highway' in tagData: 
+			tagString = 'highway'
+		elif 'natural' in tagData:
+			tagString = 'natural'
+		elif 'historic' in tagData:
+			tagString = 'historic'
+		elif 'leisure' in tagData:
+			tagString = 'leisure'
+		elif 'landuse' in tagData:
+			tagString = 'landuse'
+		elif 'railway' in tagData:
+			tagString = 'railway'
+		elif 'tourism' in tagData:
+			tagString = 'tourism'
+		elif 'waterway' in tagData:
+			tagString = 'waterway'
+			
+			
+		if tagString in validOSMNodeTypes: #is this a Node we are interested in
+			print 'Added Node with value'+tagString
+			index = validOSMNodeTypes.index(tagString); 
+			osmNodeCount[index] = osmNodeCount[index]+1
+		else:
+			print 'Did Not add a node with value: '+tagString
+
+	#we should now have all the node types we need 
+	returnString =''
+	writtenFirstValue = False
+	for value in osmNodeCount:
+		if writtenFirstValue: #make sure we have the commas right
+			returnString = returnString+', '
+		returnString = returnString+str(value)
+		writtenFirstValue = True
+	
+	#print returnString
+	#returnString = returnString+', '+str(score)
+	return returnString
+
+#methods to support Google Places Retrieval
+def process_latlon_google_places(lat,lon):
+
+	YOUR_API_KEY = 'AIzaSyDOXyM0MwnkaA6ltrVIbeddl1A7ZiRYVaM'
+	page_token = ''
+	have_page_token = False
+	number_results = 0
+	load_additional_pages = True
+
+	googlePlaceTypeCount=[]
+	for place in google_places_valid_types:
+		googlePlaceTypeCount.append(0)
+		
+	while load_additional_pages:
+		service_url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?'
+		request_params = {'location': str(lat)+','+str(lon)}
+		request_params['radius'] = 150
+		request_params['sensor']= 'true'
+		if have_page_token: #the string is not null
+			request_params['pagetoken']=page_token
+			print 'Adding Page Token'
+		
+		query_url = service_url #if service_url.endswith('?') else
+                     #'%s?' % service_url)
+	
+		encoded_data = urllib.urlencode(request_params)
+		encoded_data2 = urllib.urlencode({'key':YOUR_API_KEY})
+		request_url = query_url + encoded_data +'&'+ encoded_data2
+	#	print request_url
+		request = urllib2.Request(request_url)
+		places_response = urllib2.urlopen(request)
+		places_response_json = json.load(places_response)
+		if 'next_page_token' in places_response_json:
+			page_token = places_response_json['next_page_token'];
+			#print "Page Token" + page_token
+			have_page_token = True
+			time.sleep(2) # if there are multiple pages, the next token doesn't become immediately valid. So we need to wait for a bit
+		else:
+			load_additional_pages = False
+		
+		#output the results
+		for result in places_response_json['results']:
+			for place_type in result['types']:
+				if place_type in google_places_valid_types: #note that each item gets added to each category which it is a member
+					googlePlaceTypeCount[google_places_valid_types.index(place_type)] +=1
+			
+			
+	
+	#create the return string
+	returnString =''
+	writtenFirstValue = False
+	for value in googlePlaceTypeCount:
+		if writtenFirstValue: #make sure we have the commas right
+			returnString = returnString+', '
+		returnString = returnString+str(value)
+		writtenFirstValue = True
+	
+	print returnString
+	#returnString = returnString+', '+str(score)
+	return returnString
+
+def process_latlon_yelp(lat,lon):
+	
+	
+	print "Searchng For Yelp"
+	
+#	yelp_api = YelpAPI('Wyo8bYXKk4ubhWu_45OEuA', 'ec3DH7CsDj0kMzZOed9AgZPLzUs', 'SdC0bi3V9Km9KJ50eRYERWyKxriFCXSP','7wcujSGgqT2_DNUZHlNn7MSEs2o')
+
+	offset_value = 0
+	places_found = 0
+	continue_searching = True
+	#We are linited to 20 returns from Yelp.  This can be extended to 40, by using an offset. 
+
+	yelpTypeCount=[]
+	for place in yelp_places_valid_types:
+		yelpTypeCount.append(0)
+
+	print "appended to yelp"
+	
+	while continue_searching:
+		latlonStr = str(lat)+','+str(lon)
+		search_results = yelp_api.search_query(ll=latlonStr, radius_filter=150, sort=1, offset=offset_value)
+
+		print "Searched for places on Yelp"
+		pprint.pprint(search_results)
+		places = search_results['businesses']
+
+		pprint.pprint(places)
+		
+		if not places:
+			print "empty list"
+			continue_searching = False
+			
+		if places:
+			
+			
+			
+			for place in places:
+				places_found = places_found+1
+				print place['name'] +" ",
+				print "%r" % place['is_closed'],
+				print place['review_count'],
+				if 'categories' in place:
+					categories = place['categories']
+					for category in categories:
+						if category in yelp_places_valid_types:
+							yelpTypeCount[yelp_places_valid_types.index(category)] +=1
+				
+
+			offset_value = places_found
+			if places_found >= 40:
+				print "Found 40" #we don't get more than this, even with the offset
+				continue_searching = False
+			if places_found %20 != 0:
+				print "Keep searching we found only nodes in yelp: "+ str(places_found)
+				continue_searching = False
+		
+	
+	#create the return string
+	returnString =''
+	writtenFirstValue = False
+	for value in yelpTypeCount:
+		if writtenFirstValue: #make sure we have the commas right
+			returnString = returnString+', '
+		returnString = returnString+str(value)
+		writtenFirstValue = True
+	
+	print returnString
+	#returnString = returnString+', '+str(score)
+	return returnString
+
+def mapLatLong_toOSMdata(lat,lon):
+
+    line = process_latlon_osm(lat,lon)
+    lineElements = line.split(', ')
+    OSMhighway = int(lineElements[0])
+    OSMhistoric = int(lineElements[1])
+    OSMlanduse = int(lineElements[2])
+    OSMleisure = int(lineElements[3])
+    OSMnatural = int(lineElements[4])
+    OSMrailway   = int(lineElements[5])
+    OSMtourism = int(lineElements[6])
+    OSMwaterway  = int(lineElements[7])
+
+    OSMNew = OSMdata(OSMhighway, OSMhistoric, OSMlanduse, OSMleisure, OSMnatural, OSMrailway, OSMtourism,
+                 OSMwaterway)
+    return OSMNew
+
+def OrderedLogit(OSMdata):
+        #bx is the same across all cases. The intercept is what changes.. 
+        bx = (- 0.012*OSMdata.OSMhighway + 0.320 * OSMdata.OSMhistoric + 0.074 *OSMdata.OSMlanduse
+              + 0.028 * OSMdata.OSMleisure  - 0.001 * OSMdata.OSMnatural + OSMdata.OSMrailway
+              - 0.141 * OSMdata.OSMtourism + 0.39 * OSMdata.OSMwaterway)
+        #the probabilities are given by the following formula:
+        # prob(score <=j) = 1/(1+e^(- (aj - bxj)))
+        # therefore...                                
+        # the probability that the area scores is one is given by the following formula: 
+        prob1 = (1/ (1 + math.exp(-(-2.7525 - bx))))
+        #probability of an area to be 2 or less is given:
+        prob12 = (1/ (1 + math.exp(-(-1.677 - bx))))
+        #and therefore the probability of an area to be just 2 is:
+        prob2 = prob12-prob1
+
+        #and so on...
+        prob123 = (1/ (1 + math.exp(-(-0.8196 - bx))))
+        prob3 = prob123 - prob12
+
+        prob1234 = (1/ (1 + math.exp(-(-0.0942 - bx))))
+        prob4 = prob1234 - prob123
+
+        prob12345 = (1/ (1 + math.exp(-(0.7410 - bx))))
+        prob5 = prob12345 - prob1234
+
+        prob123456 = (1/(1 + math.exp(-(1.7173 - bx))))
+        prob6 = prob123456 - prob12345
+
+        #and ultimately
+        prob7 = 1 - prob123456
+
+        listofProbs = [prob1, prob2, prob3, prob4, prob5, prob6, prob7]
+        return listofProbs
+        
+                 
+
+class OSMdata(object):
+    def __init__(self, OSMhighway, OSMhistoric, OSMlanduse, OSMleisure, OSMnatural, OSMrailway, OSMtourism,
+                 OSMwaterway):
+	self. OSMhighway = OSMhighway
+	self. OSMhistoric = OSMhistoric
+	self. OSMlanduse= OSMlanduse
+	self. OSMleisure = OSMleisure
+	self. OSMleisure = OSMleisure
+	self. OSMnatural = OSMnatural
+	self. OSMrailway = OSMrailway
+	self. OSMtourism = OSMtourism
+	self. OSMwaterway = OSMwaterway      
+
+
+#MAIN 
+
+setup_foursquare_placetypes()
+
+dumpRemapDictToFile()
+latLonFileHandle = codecs.open('image_data.csv','r') #we assume that the file is lat,lon on each line with the last attribute being the classified attribute
+image_master_score = codecs.open('image_master_score.txt','w', 'utf-8')
+
+#OSMtest = OSMdata(1,2,0,0,5,0,0,8)
+#probs = OrderedLogit(OSMtest)
+helsinki = open('helsinki.txt', 'r')
+lines = helsinki.readlines()
+
+f = open('helsinkiResults2','w')
+
+
+
+for l in lines:
+    l.strip()
+    lElements = l.split(',')
+    name = lElements[0]
+   
+    latitude = float(lElements[1])
+    leng = float(lElements[2])
+
+    OSMnew = mapLatLong_toOSMdata(latitude, leng )
+    f.write( name + "," + str(latitude) + "," + str(leng) + '\n')
+    probs = OrderedLogit(OSMnew)
+    for p in probs:
+        f.write(str( p) + '\n')
+
+    f.write( "OSMhighway: " + str(OSMnew.OSMhighway)+ '\n')
+    f.write( "OSMhistoric: "+ str(OSMnew.OSMhistoric)+ '\n')
+    f.write( "OSMlanduse: "+ str(OSMnew.OSMlanduse)+ '\n')
+
+helsinki.close()
+f.close()
+
+#dump out the header file. This should be the combined foursquare, etc.
+#UTF8Writer = codecs.getwriter('utf8')
+#arff_header_dump = UTF8Writer(codecs.open('arff_header.txt','w')) #we will dump the header file here
+#write_header(arff_header_dump)
+#arff_header_dump.close()
+#latLonFileHandle.readline()
+#for line in latLonFileHandle:
+	#print line
+	#print 'In line processing iteration\n'
+	#lineElements = line.split(',')
+	#tag = lineElements[0]
+	#lat = float(lineElements[2])
+	#lon = float(lineElements[3]) #note that hudogeo reverses the order of these
+	#print(tag+'*'+lineElements[2]+'*'+lineElements[3]+'*')
+	#write the data for each line
+	#print line
+	#image_master_score.write(tag+'*'+process_latlon_google_places(lat,lon)+','+process_latlon_osm(lat, lon))
+	#image_master_score.write(tag+'*'+process_latlon_foursquare(lat,lon)+ 	','+process_latlon_google_places(lat,lon)+','+process_latlon_osm(lat, lon))
+	#image_master_score.write('\n')
+
+
+#image_master_score.close()
+
+
